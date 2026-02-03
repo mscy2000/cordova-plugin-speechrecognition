@@ -2,9 +2,7 @@
 
 package com.pbakondy;
 
-import android.content.Context;
 import android.media.AudioManager;
-import android.os.Build;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
@@ -34,6 +32,10 @@ import android.view.View;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+
+private AudioManager audioManager;
+private Integer prevMusicVol = null;
+private boolean muted = false;
 
 public class SpeechRecognition extends CordovaPlugin {
 
