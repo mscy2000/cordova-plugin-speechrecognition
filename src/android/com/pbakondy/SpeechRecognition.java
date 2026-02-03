@@ -2,8 +2,6 @@
 
 package com.pbakondy;
 
-import android.media.AudioManager;
-
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
@@ -22,6 +20,8 @@ import android.Manifest;
 import android.os.Build;
 import android.os.Bundle;
 
+import android.media.AudioManager;
+
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -32,10 +32,6 @@ import android.view.View;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-
-private AudioManager audioManager;
-private Integer prevMusicVol = null;
-private boolean muted = false;
 
 public class SpeechRecognition extends CordovaPlugin {
 
@@ -64,45 +60,56 @@ public class SpeechRecognition extends CordovaPlugin {
   private View view;
   private SpeechRecognizer recognizer;
 
+  // ====== beep mute fields (MUST be inside the class) ======
+  private AudioManager audioManager;
+  private Integer prevMusicVol = null;
+  private boolean muted = false;
 
   private void muteBeep() {
     if (muted) return;
 
-    if (audioManager == null) {
+    try {
+      if (audioManager == null) {
         audioManager = (AudioManager) cordova.getActivity().getSystemService(Context.AUDIO_SERVICE);
+      }
+      if (audioManager == null) return;
+
+      prevMusicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+
+      // API 23+ uses adjustStreamVolume mute/unmute
+      if (Build.VERSION.SDK_INT >= 23) {
+        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
+      } else {
+        // older
+        audioManager.setStreamMute(AudioManager.STREAM_MUSIC, true);
+      }
+      muted = true;
+    } catch (Exception ignored) {
+      // do nothing (never crash)
     }
-    if (audioManager == null) return;
+  }
 
-    try {
-        prevMusicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-
-        if (Build.VERSION.SDK_INT >= 23) {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
-        } else {
-            audioManager.setStreamMute(AudioManager.STREAM_MUSIC, true);
-        }
-        muted = true;
-    } catch (Exception ignored) {}
-}
-
-private void unmuteBeep() {
+  private void unmuteBeep() {
     if (!muted) return;
-    if (audioManager == null) return;
 
     try {
-        if (Build.VERSION.SDK_INT >= 23) {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
-            if (prevMusicVol != null) {
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevMusicVol, 0);
-            }
-        } else {
-            audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
-        }
-    } catch (Exception ignored) {}
-    muted = false;
-}
+      if (audioManager == null) return;
 
-  
+      if (Build.VERSION.SDK_INT >= 23) {
+        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
+        if (prevMusicVol != null) {
+          audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevMusicVol, 0);
+        }
+      } else {
+        audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
+      }
+    } catch (Exception ignored) {
+      // do nothing
+    } finally {
+      muted = false;
+    }
+  }
+
   @Override
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
     super.initialize(cordova, webView);
@@ -161,11 +168,14 @@ private void unmuteBeep() {
         Boolean showPartial = args.optBoolean(3, false);
         Boolean showPopup = args.optBoolean(4, true);
 
-        muteBeep();
+        // ★ IMPORTANT:
+        // Only mute for the "no popup" path (SpeechRecognizer direct).
+        // If showPopup==true, results come via onActivityResult and listener might not run.
+        if (!showPopup) {
+          muteBeep();
+        }
 
-        
-        startListening(lang, matches, prompt,showPartial, showPopup);
-
+        startListening(lang, matches, prompt, showPartial, showPopup);
         return true;
       }
 
@@ -174,8 +184,14 @@ private void unmuteBeep() {
         view.post(new Runnable() {
           @Override
           public void run() {
-            if(recognizer != null) {
-              recognizer.stopListening();
+            try {
+              if (recognizer != null) {
+                recognizer.stopListening();
+              }
+            } catch (Exception ignored) {
+            } finally {
+              // ★ Always restore audio on stop
+              unmuteBeep();
             }
             callbackContextStop.success();
           }
@@ -211,15 +227,14 @@ private void unmuteBeep() {
   }
 
   private void startListening(String language, int matches, String prompt, final Boolean showPartial, Boolean showPopup) {
-    Log.d(LOG_TAG, "startListening() language: " + language + ", matches: " + matches + ", prompt: " + prompt + ", showPartial: " + showPartial + ", showPopup: " + showPopup);
+    Log.d(LOG_TAG, "startListening() language: " + language + ", matches: " + matches
+            + ", prompt: " + prompt + ", showPartial: " + showPartial + ", showPopup: " + showPopup);
 
     final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
     intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
     intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, matches);
-    intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,
-            activity.getPackageName());
+    intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.getPackageName());
     intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, showPartial);
     intent.putExtra("android.speech.extra.DICTATION_MODE", showPartial);
 
@@ -228,14 +243,15 @@ private void unmuteBeep() {
     }
 
     if (showPopup) {
+      // popup path (Google UI)
       cordova.startActivityForResult(this, intent, REQUEST_CODE_SPEECH);
     } else {
+      // no popup path (SpeechRecognizer direct)
       view.post(new Runnable() {
         @Override
         public void run() {
-
+          // mute again just before start, safe due to "muted" flag
           muteBeep();
-          
           recognizer.startListening(intent);
         }
       });
@@ -296,17 +312,20 @@ private void unmuteBeep() {
     Log.d(LOG_TAG, "onActivityResult() requestCode: " + requestCode + ", resultCode: " + resultCode);
 
     if (requestCode == REQUEST_CODE_SPEECH) {
-      if (resultCode == Activity.RESULT_OK) {
-        try {
+      try {
+        if (resultCode == Activity.RESULT_OK) {
           ArrayList<String> matches = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
           JSONArray jsonMatches = new JSONArray(matches);
           this.callbackContext.success(jsonMatches);
-        } catch (Exception e) {
-          e.printStackTrace();
-          this.callbackContext.error(e.getMessage());
+        } else {
+          this.callbackContext.error(Integer.toString(resultCode));
         }
-      } else {
-        this.callbackContext.error(Integer.toString(resultCode));
+      } catch (Exception e) {
+        e.printStackTrace();
+        this.callbackContext.error(e.getMessage());
+      } finally {
+        // ★ restore in popup path too (safety)
+        unmuteBeep();
       }
       return;
     }
@@ -314,16 +333,13 @@ private void unmuteBeep() {
     super.onActivityResult(requestCode, resultCode, data);
   }
 
-
   private class SpeechRecognitionListener implements RecognitionListener {
 
     @Override
-    public void onBeginningOfSpeech() {
-    }
+    public void onBeginningOfSpeech() { }
 
     @Override
-    public void onBufferReceived(byte[] buffer) {
-    }
+    public void onBufferReceived(byte[] buffer) { }
 
     @Override
     public void onEndOfSpeech() {
@@ -339,8 +355,7 @@ private void unmuteBeep() {
     }
 
     @Override
-    public void onEvent(int eventType, Bundle params) {
-    }
+    public void onEvent(int eventType, Bundle params) { }
 
     @Override
     public void onPartialResults(Bundle bundle) {
@@ -348,9 +363,7 @@ private void unmuteBeep() {
       Log.d(LOG_TAG, "SpeechRecognitionListener partialResults: " + matches);
       JSONArray matchesJSON = new JSONArray(matches);
       try {
-        if (matches != null
-                && matches.size() > 0
-                        && !mLastPartialResults.equals(matchesJSON)) {
+        if (matches != null && matches.size() > 0 && !mLastPartialResults.equals(matchesJSON)) {
           mLastPartialResults = matchesJSON;
           PluginResult pluginResult = new PluginResult(PluginResult.Status.OK, matchesJSON);
           pluginResult.setKeepCallback(true);
@@ -370,7 +383,7 @@ private void unmuteBeep() {
     @Override
     public void onResults(Bundle results) {
       unmuteBeep();
-      
+
       ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
       Log.d(LOG_TAG, "SpeechRecognitionListener results: " + matches);
       try {
@@ -383,8 +396,7 @@ private void unmuteBeep() {
     }
 
     @Override
-    public void onRmsChanged(float rmsdB) {
-    }
+    public void onRmsChanged(float rmsdB) { }
 
     private String getErrorText(int errorCode) {
       String message;
@@ -423,5 +435,4 @@ private void unmuteBeep() {
       return message;
     }
   }
-
 }
