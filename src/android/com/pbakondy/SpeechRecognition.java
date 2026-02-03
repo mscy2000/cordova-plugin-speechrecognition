@@ -35,6 +35,14 @@ import java.util.Locale;
 
 public class SpeechRecognition extends CordovaPlugin {
 
+  private AudioManager audioManager;
+
+  private Integer prevMusicVol = null;
+  private Integer prevSystemVol = null;
+  private Integer prevNotifVol = null;
+  
+  private boolean muted = false;
+  
   private static final String LOG_TAG = "SpeechRecognition";
 
   private static final int REQUEST_CODE_PERMISSION = 2001;
@@ -67,48 +75,49 @@ public class SpeechRecognition extends CordovaPlugin {
 
   private void muteBeep() {
     if (muted) return;
-
+  
     try {
       if (audioManager == null) {
         audioManager = (AudioManager) cordova.getActivity().getSystemService(Context.AUDIO_SERVICE);
       }
       if (audioManager == null) return;
-
-      prevMusicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-
-      // API 23+ uses adjustStreamVolume mute/unmute
-      if (Build.VERSION.SDK_INT >= 23) {
-        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
-      } else {
-        // older
-        audioManager.setStreamMute(AudioManager.STREAM_MUSIC, true);
-      }
+  
+      // 現在音量を保存
+      prevMusicVol  = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+      prevSystemVol = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM);
+      prevNotifVol  = audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION);
+  
+      // ★確実に0へ（端末差に強い）
+      audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0);
+      audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
+      audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0);
+  
       muted = true;
-    } catch (Exception ignored) {
-      // do nothing (never crash)
-    }
+    } catch (Exception ignored) {}
   }
-
+  
   private void unmuteBeep() {
     if (!muted) return;
-
+  
     try {
       if (audioManager == null) return;
-
-      if (Build.VERSION.SDK_INT >= 23) {
-        audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
-        if (prevMusicVol != null) {
-          audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevMusicVol, 0);
-        }
-      } else {
-        audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
+  
+      // 保存していた音量へ復帰
+      if (prevMusicVol != null) {
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevMusicVol, 0);
+      }
+      if (prevSystemVol != null) {
+        audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, prevSystemVol, 0);
+      }
+      if (prevNotifVol != null) {
+        audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, prevNotifVol, 0);
       }
     } catch (Exception ignored) {
-      // do nothing
     } finally {
       muted = false;
     }
   }
+
 
   @Override
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
