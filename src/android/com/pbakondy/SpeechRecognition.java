@@ -2,6 +2,10 @@
 
 package com.pbakondy;
 
+import android.content.Context;
+import android.media.AudioManager;
+import android.os.Build;
+
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
@@ -58,6 +62,45 @@ public class SpeechRecognition extends CordovaPlugin {
   private View view;
   private SpeechRecognizer recognizer;
 
+
+  private void muteBeep() {
+    if (muted) return;
+
+    if (audioManager == null) {
+        audioManager = (AudioManager) cordova.getActivity().getSystemService(Context.AUDIO_SERVICE);
+    }
+    if (audioManager == null) return;
+
+    try {
+        prevMusicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+
+        if (Build.VERSION.SDK_INT >= 23) {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
+        } else {
+            audioManager.setStreamMute(AudioManager.STREAM_MUSIC, true);
+        }
+        muted = true;
+    } catch (Exception ignored) {}
+}
+
+private void unmuteBeep() {
+    if (!muted) return;
+    if (audioManager == null) return;
+
+    try {
+        if (Build.VERSION.SDK_INT >= 23) {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
+            if (prevMusicVol != null) {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevMusicVol, 0);
+            }
+        } else {
+            audioManager.setStreamMute(AudioManager.STREAM_MUSIC, false);
+        }
+    } catch (Exception ignored) {}
+    muted = false;
+}
+
+  
   @Override
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
     super.initialize(cordova, webView);
@@ -115,6 +158,10 @@ public class SpeechRecognition extends CordovaPlugin {
         mLastPartialResults = new JSONArray();
         Boolean showPartial = args.optBoolean(3, false);
         Boolean showPopup = args.optBoolean(4, true);
+
+        muteBeep();
+
+        
         startListening(lang, matches, prompt,showPartial, showPopup);
 
         return true;
@@ -184,6 +231,9 @@ public class SpeechRecognition extends CordovaPlugin {
       view.post(new Runnable() {
         @Override
         public void run() {
+
+          muteBeep();
+          
           recognizer.startListening(intent);
         }
       });
@@ -275,10 +325,12 @@ public class SpeechRecognition extends CordovaPlugin {
 
     @Override
     public void onEndOfSpeech() {
+      unmuteBeep();
     }
 
     @Override
     public void onError(int errorCode) {
+      unmuteBeep();
       String errorMessage = getErrorText(errorCode);
       Log.d(LOG_TAG, "Error: " + errorMessage);
       callbackContext.error(errorMessage);
@@ -315,6 +367,8 @@ public class SpeechRecognition extends CordovaPlugin {
 
     @Override
     public void onResults(Bundle results) {
+      unmuteBeep();
+      
       ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
       Log.d(LOG_TAG, "SpeechRecognitionListener results: " + matches);
       try {
