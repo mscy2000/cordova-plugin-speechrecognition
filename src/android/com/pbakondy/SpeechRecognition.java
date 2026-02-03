@@ -228,39 +228,52 @@ public class SpeechRecognition extends CordovaPlugin {
     return SpeechRecognizer.isRecognitionAvailable(context);
   }
 
-  private void startListening(String language, int matches, String prompt, final Boolean showPartial, Boolean showPopup) {
-    Log.d(LOG_TAG, "startListening() language: " + language + ", matches: " + matches
-            + ", prompt: " + prompt + ", showPartial: " + showPartial + ", showPopup: " + showPopup);
+ private void startListening(String language, int matches, String prompt,
+                            final Boolean showPartial, Boolean showPopup) {
+
+    Log.d(LOG_TAG, "startListening() language: " + language);
 
     final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+
+    // ===== ★ここから追加（長く・安定させる設定）=====
+    intent.putExtra(
+        RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+        6000
+    );
+    intent.putExtra(
+        RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+        6000
+    );
+    intent.putExtra(
+        RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
+        20000
+    );
+    // ===== ★ここまで =====
+
+    intent.putExtra(
+        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+    );
     intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
     intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, matches);
-    intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.getPackageName());
+    intent.putExtra(
+        RecognizerIntent.EXTRA_CALLING_PACKAGE,
+        activity.getPackageName()
+    );
     intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, showPartial);
     intent.putExtra("android.speech.extra.DICTATION_MODE", showPartial);
 
-    // (Optional) reduce frequent end->restart by extending silence thresholds
-    // intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000);
-    // intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000);
-    // intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 15000);
-
     if (prompt != null) {
-      intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
     }
 
     if (showPopup) {
-      cordova.startActivityForResult(this, intent, REQUEST_CODE_SPEECH);
+        cordova.startActivityForResult(this, intent, REQUEST_CODE_SPEECH);
     } else {
-      view.post(new Runnable() {
-        @Override
-        public void run() {
-          muteBeep(); // safe due to "muted" guard
-          recognizer.startListening(intent);
-        }
-      });
+        view.post(() -> recognizer.startListening(intent));
     }
-  }
+}
+
 
   private void getSupportedLanguages() {
     if (languageDetailsChecker == null) {
