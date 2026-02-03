@@ -35,14 +35,6 @@ import java.util.Locale;
 
 public class SpeechRecognition extends CordovaPlugin {
 
-  private AudioManager audioManager;
-
-  private Integer prevMusicVol = null;
-  private Integer prevSystemVol = null;
-  private Integer prevNotifVol = null;
-  
-  private boolean muted = false;
-  
   private static final String LOG_TAG = "SpeechRecognition";
 
   private static final int REQUEST_CODE_PERMISSION = 2001;
@@ -68,41 +60,46 @@ public class SpeechRecognition extends CordovaPlugin {
   private View view;
   private SpeechRecognizer recognizer;
 
-  // ====== beep mute fields (MUST be inside the class) ======
+  // ====== beep mute fields (inside the class, defined ONCE) ======
   private AudioManager audioManager;
+
   private Integer prevMusicVol = null;
+  private Integer prevSystemVol = null;
+  private Integer prevNotifVol = null;
+
   private boolean muted = false;
 
   private void muteBeep() {
     if (muted) return;
-  
+
     try {
       if (audioManager == null) {
         audioManager = (AudioManager) cordova.getActivity().getSystemService(Context.AUDIO_SERVICE);
       }
       if (audioManager == null) return;
-  
-      // 現在音量を保存
+
+      // Save current volumes
       prevMusicVol  = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
       prevSystemVol = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM);
       prevNotifVol  = audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION);
-  
-      // ★確実に0へ（端末差に強い）
+
+      // Set to 0 (more reliable across devices)
       audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0);
       audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0);
       audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0);
-  
+
       muted = true;
-    } catch (Exception ignored) {}
+    } catch (Exception ignored) {
+      // never crash
+    }
   }
-  
+
   private void unmuteBeep() {
     if (!muted) return;
-  
+
     try {
       if (audioManager == null) return;
-  
-      // 保存していた音量へ復帰
+
       if (prevMusicVol != null) {
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevMusicVol, 0);
       }
@@ -117,7 +114,6 @@ public class SpeechRecognition extends CordovaPlugin {
       muted = false;
     }
   }
-
 
   @Override
   public void initialize(CordovaInterface cordova, CordovaWebView webView) {
@@ -177,9 +173,7 @@ public class SpeechRecognition extends CordovaPlugin {
         Boolean showPartial = args.optBoolean(3, false);
         Boolean showPopup = args.optBoolean(4, true);
 
-        // ★ IMPORTANT:
-        // Only mute for the "no popup" path (SpeechRecognizer direct).
-        // If showPopup==true, results come via onActivityResult and listener might not run.
+        // Only mute for "no popup" (direct SpeechRecognizer) path.
         if (!showPopup) {
           muteBeep();
         }
@@ -199,8 +193,7 @@ public class SpeechRecognition extends CordovaPlugin {
               }
             } catch (Exception ignored) {
             } finally {
-              // ★ Always restore audio on stop
-              unmuteBeep();
+              unmuteBeep(); // always restore
             }
             callbackContextStop.success();
           }
@@ -247,20 +240,22 @@ public class SpeechRecognition extends CordovaPlugin {
     intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, showPartial);
     intent.putExtra("android.speech.extra.DICTATION_MODE", showPartial);
 
+    // (Optional) reduce frequent end->restart by extending silence thresholds
+    // intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000);
+    // intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000);
+    // intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 15000);
+
     if (prompt != null) {
       intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
     }
 
     if (showPopup) {
-      // popup path (Google UI)
       cordova.startActivityForResult(this, intent, REQUEST_CODE_SPEECH);
     } else {
-      // no popup path (SpeechRecognizer direct)
       view.post(new Runnable() {
         @Override
         public void run() {
-          // mute again just before start, safe due to "muted" flag
-          muteBeep();
+          muteBeep(); // safe due to "muted" guard
           recognizer.startListening(intent);
         }
       });
@@ -333,8 +328,7 @@ public class SpeechRecognition extends CordovaPlugin {
         e.printStackTrace();
         this.callbackContext.error(e.getMessage());
       } finally {
-        // ★ restore in popup path too (safety)
-        unmuteBeep();
+        unmuteBeep(); // safety restore
       }
       return;
     }
